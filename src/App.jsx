@@ -409,9 +409,18 @@ const App = () => {
                   <Bot size={18} style={{ color: 'var(--saadet-red)' }} />
                   MUSA AI ASİSTAN
                 </h2>
-                <button className="icon-btn" onClick={() => toggleFullscreen('right')}>
-                  {fullscreenPanel === 'right' ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button className="icon-btn" title="Sohbeti Temizle" onClick={() => {
+                    if (window.confirm('Sohbet geçmişi silinsin mi?')) {
+                      setChatMessages([{ role: 'ai', text: `Merhaba! Ben **Musa AI**, Saadet Partisi'nin kurumsal yapay zeka asistanıyım.\n\nHaber analizi, içerik üretimi veya siyasi değerlendirme için bana yazabilirsiniz.` }]);
+                    }
+                  }}>
+                    <RefreshCw size={16} />
+                  </button>
+                  <button className="icon-btn" onClick={() => toggleFullscreen('right')}>
+                    {fullscreenPanel === 'right' ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                  </button>
+                </div>
               </div>
 
               {/* Content Generator Bar */}
