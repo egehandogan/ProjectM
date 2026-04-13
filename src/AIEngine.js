@@ -1,7 +1,29 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(API_KEY);
+
+if (!API_KEY) {
+  console.error("❌ VITE_GEMINI_API_KEY bulunamadı! .env dosyanızı veya Vercel Environment Variables ayarlarını kontrol edin.");
+}
+
+const genAI = new GoogleGenerativeAI(API_KEY || "MISSING_KEY");
+
+/* ─────────────────────────────────────────────
+   API BAĞLANTI TESTİ
+───────────────────────────────────────────────*/
+export const testConnection = async () => {
+  if (!API_KEY) {
+    return { ok: false, error: "API Key bulunamadı (VITE_GEMINI_API_KEY)" };
+  }
+  try {
+    const testModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await testModel.generateContent("Merhaba, bağlantı testi.");
+    const text = result.response.text();
+    return { ok: true, model: "gemini-1.5-flash", preview: text.slice(0, 60) };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+};
 
 /* ─────────────────────────────────────────────
    SYSTEM INSTRUCTION  (Musa AI kurumsal kimliği)
@@ -31,7 +53,7 @@ Analizlerde mutlaka:
    MODEL TANIMLARI
 ───────────────────────────────────────────────*/
 const chatModel = genAI.getGenerativeModel({
-  model: "gemini-2.0-flash",
+  model: "gemini-1.5-flash",
   systemInstruction: SYSTEM_INSTRUCTION,
   generationConfig: {
     maxOutputTokens: 2048,
@@ -40,7 +62,7 @@ const chatModel = genAI.getGenerativeModel({
 });
 
 const analysisModel = genAI.getGenerativeModel({
-  model: "gemini-2.0-flash",
+  model: "gemini-1.5-flash",
   systemInstruction: SYSTEM_INSTRUCTION,
   generationConfig: {
     maxOutputTokens: 1024,
