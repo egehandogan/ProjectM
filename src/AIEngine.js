@@ -51,7 +51,12 @@ export const chatWithAssistant = async (messages, reference = null, onChunk = nu
 
   try {
     // ---- 1. DENEME: GEMINI ----
-    const historyGemini = messages.slice(0, -1).map((m) => ({
+    let validMessages = messages.slice(0, -1);
+    if (validMessages.length > 0 && validMessages[0].role === "ai") {
+      validMessages.shift(); // remove the initial AI greeting
+    }
+
+    const historyGemini = validMessages.map((m) => ({
       role: m.role === "user" ? "user" : "model",
       parts: [{ text: m.text }],
     }));
