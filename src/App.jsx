@@ -412,7 +412,7 @@ const App = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <button className="icon-btn" title="Sohbeti Temizle" onClick={() => {
                     if (window.confirm('Sohbet geçmişi silinsin mi?')) {
-                      setChatMessages([{ role: 'ai', text: `Merhaba! Ben **Musa AI**, Saadet Partisi'nin kurumsal yapay zeka asistanıyım.\n\nHaber analizi, içerik üretimi veya siyasi değerlendirme için bana yazabilirsiniz.` }]);
+                      setChatMessages([{ role: 'ai', text: `Merhaba! Ben **Milli AI**, Saadet Partisi'nin kurumsal yapay zeka asistanıyım.\n\nHaber analizi, içerik üretimi veya siyasi değerlendirme için bana yazabilirsiniz.` }]);
                     }
                   }}>
                     <RefreshCw size={16} />
@@ -460,7 +460,7 @@ const App = () => {
                   >
                     <div className="bubble-meta">
                       {msg.role === 'ai' ? (
-                        <><Bot size={11} style={{ color: 'var(--saadet-red)' }} /> Musa AI</>
+                        <><Bot size={11} style={{ color: 'var(--saadet-red)' }} /> Milli AI</>
                       ) : (
                         <>Kullanıcı</>
                       )}
