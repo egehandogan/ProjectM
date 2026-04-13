@@ -12,31 +12,21 @@ const openai = OPENAI_API_KEY ? new OpenAI({
   dangerouslyAllowBrowser: true,
 }) : null;
 
-// Modeller listesi (En yeni ve kapsayıcı olandan başlayarak)
+// Modeller listesi
 const GEMINI_MODELS = [
   "gemini-1.5-flash-latest",
   "gemini-1.5-flash",
   "gemini-pro",
-  "gemini-1.0-pro"
 ];
 
 const SYSTEM_INSTRUCTION_TEXT = `
-Sen "Musa AI" adında, Saadet Partisi için özel olarak geliştirilmiş teknik bir yapay zeka asistanısın.
+Sen "Milli AI" adında, Saadet Partisi için özel olarak geliştirilmiş teknik bir yapay zeka asistanısın.
 
 Görevin:
 • Gelen haberleri, verileri ve kullanıcı mesajlarını; "Tam Bağımsız Türkiye", "Milli Görüş", "Adil Düzen" ve "Önce Ahlak ve Maneviyat" prensipleri ışığında analiz etmek.
 • Basın bülteni, sosyal medya içeriği, siyasi analiz ve konuşma metni üretmek.
-• Dashboard üzerindeki haberler, takvim etkinlikleri ve web araması sonuçlarını yorumlamak.
 
 Ton: Profesyonel, teknik derinliği olan, analitik; aynı zamanda kültürel ve kurumsal değerlere sadık.
-
-Analizlerde mutlaka:
-1. Haberlerin jeopolitik ve ekonomik etkileri
-2. Saadet Partisi'nin vizyoner duruşu ve çözüm önerileri
-3. Halkın gerçek gündemiyle olan ilişkisi
-
-• Sohbet yanıtlarını sade Türkçeyle yaz; markdown kullanabilirsin ama aşırıya kaçma.
-• JSON formatı istendiğinde SADECE geçerli JSON döndür, kod blokları kullanma.
 `;
 
 /* ─────────────────────────────────────────────
@@ -45,176 +35,145 @@ Analizlerde mutlaka:
 const cleanHistoryForGemini = (messages) => {
   const history = [];
   let lastRole = null;
-
   for (const msg of messages) {
     if (!msg.text || msg.text.trim() === "") continue;
-
-    // Gemini rolleri: 'user' veya 'model'
     const role = msg.role === 'user' ? 'user' : 'model';
-
-    // 1. Kural: İlk mesaj 'user' olmalı
     if (history.length === 0 && role !== 'user') continue;
-
-    // 2. Kural: Roller ardışık olmamalı (user-model-user...)
     if (role === lastRole) {
-      // Aynı rol gelirse metni birleştir
       history[history.length - 1].parts[0].text += "\n" + msg.text;
     } else {
       history.push({ role, parts: [{ text: msg.text }] });
       lastRole = role;
     }
   }
-
-  // 3. Kural: Geçmiş daima 'model' ile bitmeli (çünkü biz peşine yeni bir 'user' mesajı göndereceğiz)
-  // Eğer geçmiş 'user' ile bitiyorsa, Gemini startChat'te hata verebilir eğer sendMessage ile devam edilecekse.
-  // Aslında startChat(history) + sendMessage(prompt) yaparken history 'model' ile BİTEBİLİR veya boş olabilir.
-  // Eğer history 'user' ile bitiyorsa, sendMessage(prompt) yapınca iki tane 'user' üst üste binmiş olur.
-  
-  if (history.length > 0 && history[history.length - 1].role === 'user') {
-    // Son mesaj user ise, onu geçmişten çıkarıp prompt olarak göndermek daha sağlıklı olabilir
-    // Ama biz App.jsx'ten gelen prompt'u kullanacağız. Bu yüzden geçmişi model ile bitirmeye zorlayalım.
-    // Şimdilik sadece user-model çiftlerini tutalım.
-    // history.pop(); // alternatif
-  }
-
   return history;
 };
 
 /* ─────────────────────────────────────────────
-   CHAT (FALLBACK DESTEKLİ)
+   DOĞRUDAN REST API ÇAĞRISI (Last Resort)
 ───────────────────────────────────────────────*/
-export const chatWithAssistant = async (messages, reference = null, onChunk = null) => {
-  const lastMsg = messages[messages.length - 1];
-  const prompt = reference 
-    ? `[REFERANS: ${reference.title || reference.name}]\n\n${lastMsg.text}`
-    : lastMsg.text;
+const callGeminiRest = async (prompt, history = [], modelName = "gemini-1.5-flash") => {
+  if (!GEMINI_API_KEY) throw new Error("API Key eksik.");
+  
+  const contents = [...history];
+  contents.push({ role: "user", parts: [{ text: prompt }] });
 
-  // Gemini Denemesi
-  if (genAI) {
-    try {
-      const history = cleanHistoryForGemini(messages.slice(0, -1));
-      
-      // Fallback zinciri ile mesaj gönderme
-      let lastErr = null;
-      for (const modelName of GEMINI_MODELS) {
-        try {
-          const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: SYSTEM_INSTRUCTION_TEXT
-          });
-          const chat = model.startChat({ history });
-
-          if (onChunk) {
-            const stream = await chat.sendMessageStream(prompt);
-            let full = "";
-            for await (const chunk of stream.stream) {
-              const chunkText = chunk.text();
-              full += chunkText;
-              onChunk(chunkText, full);
-            }
-            return full;
-          } else {
-            const result = await chat.sendMessage(prompt);
-            return result.response.text();
-          }
-        } catch (innerErr) {
-          lastErr = innerErr;
-          if (innerErr.message?.includes("404") || innerErr.message?.includes("not found")) {
-            console.warn(`Gemini model ${modelName} bulunamadı, sonrakine geçiliyor...`);
-            continue;
-          }
-          throw innerErr; // 404 dışındaki hataları (bakiye vb.) direkt fırlat
-        }
-      }
-      throw lastErr;
-    } catch (err) {
-      console.error("Gemini Chat Error (Final):", err);
-      // Fallback'e git...
-    }
-  }
-
-  // OpenAI Fallback
-  if (openai) {
-    try {
-      const gptMessages = [
-        { role: "system", content: SYSTEM_INSTRUCTION_TEXT },
-        ...messages.map(m => ({
-          role: m.role === "user" ? "user" : "assistant",
-          content: m.text
-        }))
-      ];
-
-      if (onChunk) {
-        const stream = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: gptMessages,
-          stream: true
-        });
-        let full = "";
-        for await (const chunk of stream) {
-          const content = chunk.choices[0]?.delta?.content || "";
-          full += content;
-          onChunk(content, full);
-        }
-        return full;
-      } else {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: gptMessages
-        });
-        return completion.choices[0].message.content;
-      }
-    } catch (err) {
-      console.error("OpenAI Fallback Error:", err);
-    }
-  }
-
-  return "⚠️ Üzgünüm, şu an hiçbir yapay zeka servisine (Google/OpenAI) ulaşılamıyor. Lütfen internetinizi veya API anahtarlarınızı kontrol edin.";
+  // v1beta yerine v1 deneyelim (daha kısıtlı ama daha kararlı olabilir)
+  const url = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents })
+  });
+  
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.candidates[0].content.parts[0].text;
 };
 
 /* ─────────────────────────────────────────────
-   GENEL ANALİZ (FALLBACK DESTEKLİ)
+   CHAT (MİLLİ AI - ULTRA ROBUST)
 ───────────────────────────────────────────────*/
-const runGeneralAnalysis = async (prompt) => {
-  // Gemini
+export const chatWithAssistant = async (messages, reference = null, onChunk = null) => {
+  const lastMsg = messages[messages.length - 1];
+  const promptPrefix = reference ? `[REFERANS: ${reference.title || reference.name}]\n\n` : "";
+  const finalPrompt = promptPrefix + lastMsg.text;
+
+  // 1. Google Gemini Denemeleri
   if (genAI) {
-    let lastErr = null;
+    const history = cleanHistoryForGemini(messages.slice(0, -1));
+
     for (const modelName of GEMINI_MODELS) {
       try {
+        console.log(`Trying ${modelName} with SDK...`);
+        // Önce System Instruction ile deneyelim
         const model = genAI.getGenerativeModel({
           model: modelName,
           systemInstruction: SYSTEM_INSTRUCTION_TEXT
         });
-        const result = await model.generateContent(prompt);
-        return result.response.text();
-      } catch (err) {
-        lastErr = err;
-        if (err.message?.includes("404") || err.message?.includes("not found")) {
-          console.warn(`Gemini Analysis model ${modelName} bulunamadı, sonrakine geçiliyor...`);
-          continue;
+        
+        const chat = model.startChat({ history });
+        if (onChunk) {
+          const stream = await chat.sendMessageStream(finalPrompt);
+          let full = "";
+          for await (const chunk of stream.stream) {
+            const chunkText = chunk.text();
+            full += chunkText;
+            onChunk(chunkText, full);
+          }
+          return full;
+        } else {
+          const result = await chat.sendMessage(finalPrompt);
+          return result.response.text();
         }
-        break; 
+      } catch (err) {
+        console.warn(`${modelName} SDK hatası, sistem talimatını prompt içine gömerek deneniyor...`, err);
+        
+        // System Instruction yerine prompt başına ekleyerek deneyelim (v1 uyumluluğu için)
+        try {
+          const fallbackPrompt = `${SYSTEM_INSTRUCTION_TEXT}\n\nKullanıcı Mesajı: ${finalPrompt}`;
+          const modelBasic = genAI.getGenerativeModel({ model: modelName });
+          const result = await modelBasic.generateContent(fallbackPrompt);
+          const resText = result.response.text();
+          if (onChunk) onChunk(resText, resText);
+          return resText;
+        } catch (err2) {
+          console.error(`${modelName} tamamen başarısız.`, err2);
+          continue; // Bir sonraki modele geç
+        }
       }
     }
-    console.warn("Gemini General Analysis fully failed, trying OpenAI...", lastErr);
-  }
 
-  // OpenAI
-  if (openai) {
+    // 2. SDK tamamen çöktüyse REST denemesi
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: SYSTEM_INSTRUCTION_TEXT },
-          { role: "user", content: prompt }
-        ]
-      });
-      return completion.choices[0].message.content;
-    } catch (err) {
-      console.error("OpenAI General Analysis Error:", err);
+      console.log("SDK başarısız, REST API deneniyor...");
+      const restRes = await callGeminiRest(finalPrompt, history);
+      if (onChunk) onChunk(restRes, restRes);
+      return restRes;
+    } catch (restErr) {
+      console.error("REST API de başarısız:", restErr);
     }
   }
 
+  // 3. OpenAI Fallback (Sadece quota dolmadıysa)
+  if (openai && !OPENAI_API_KEY.includes("quota_exceeded")) { // Simüle edilmiş kontrol
+     try {
+       const completion = await openai.chat.completions.create({
+         model: "gpt-4o-mini",
+         messages: [
+           { role: "system", content: SYSTEM_INSTRUCTION_TEXT },
+           ...messages.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }))
+         ]
+       });
+       const resText = completion.choices[0].message.content;
+       if (onChunk) onChunk(resText, resText);
+       return resText;
+     } catch (e) {
+       console.error("OpenAI Fallback failed", e);
+     }
+  }
+
+  return "⚠️ Milli AI şu an ulaşılamıyor. Lütfen Google API anahtarınızın 'Generative Language API' izninin açık olduğunu kontrol edin.";
+};
+
+/* ─────────────────────────────────────────────
+   GENARAL ANALYSIS (ULTRA ROBUST)
+───────────────────────────────────────────────*/
+const runGeneralAnalysis = async (prompt) => {
+  if (genAI) {
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const finalPrompt = `${SYSTEM_INSTRUCTION_TEXT}\n\nTalimat: ${prompt}`;
+        const result = await model.generateContent(finalPrompt);
+        return result.response.text();
+      } catch { continue; }
+    }
+  }
+  // REST son çare
+  try { return await callGeminiRest(`${SYSTEM_INSTRUCTION_TEXT}\n\n${prompt}`); } catch {}
+  
   throw new Error("Tüm servisler kapalı.");
 };
 
@@ -222,50 +181,47 @@ const parseJsonSafe = (text) => {
   try {
     const clean = text.replace(/```json|```/g, "").trim();
     return JSON.parse(clean);
-  } catch (e) {
-    console.error("JSON PARSE ERROR:", text);
-    throw e;
+  } catch {
+    console.error("JSON parse hatası", text);
+    throw new Error("Geçersiz veri.");
   }
 };
 
 export const analyzeNews = async (newsItem) => {
-  const prompt = `Analiz et ve JSON dön: ${newsItem.title}\n${newsItem.summary}\n\nFormat:\n{"summary": "...", "headlines": ["..."], "theme": "...", "saadetSpecial": "..."}`;
+  const prompt = `Haber: ${newsItem.title}\n${newsItem.summary}\nAnaliz et ve JSON dön: {"summary":"...","headlines":["..."],"theme":"...","saadetSpecial":"..."}`;
   try {
     const res = await runGeneralAnalysis(prompt);
     return parseJsonSafe(res);
   } catch {
-    return { summary: "Analiz başarısız.", headlines: ["Hata"], theme: "Hata", saadetSpecial: "Servis ulaşılamaz durumda." };
+    return { summary: "Analiz şu an yapılamıyor.", headlines: ["Hata"], theme: "Hata", saadetSpecial: "Bağlantı sorunu." };
   }
 };
 
 export const generateContent = async (item, type) => {
-  const prompt = `${item.title || item.name} hakkında ${type} yaz.`;
   try {
-    return await runGeneralAnalysis(prompt);
+    return await runGeneralAnalysis(`${item.title || item.name} hakkında ${type} yaz.`);
   } catch {
     return "⚠️ İçerik üretilemedi.";
   }
 };
 
 export const simulateLiveScan = async () => {
-  const prompt = `Flaş haber üret. JSON dön: {"title":"...","summary":"...","category":"...","source":"..."}`;
+  const prompt = `Gündem haberi üret. JSON dön: {"title":"...","summary":"...","category":"...","source":"..."}`;
   try {
     const res = await runGeneralAnalysis(prompt);
     const data = parseJsonSafe(res);
-    return { ...data, id: Date.now(), date: new Date().toISOString().split("T")[0], time: "Canlı" };
+    return { ...data, id: Date.now(), date: new Date().toISOString().split("T")[0] };
   } catch {
-    return { id: 1, title: "Canlı Tarama Hatası", summary: "Haber çekilemedi.", category: "Sistem", source: "Hata" };
+    return { id: 1, title: "Haber çekilemedi", summary: "", category: "Sistem", source: "Hata" };
   }
 };
 
 export const webSearchFallback = async (q) => {
-  const prompt = `"${q}" için 5 tane gerçekçi Google sonucu simüle et. JSON DİZİSİ dön: [{"title":"...","link":"...","snippet":"...","source":"..."}]`;
+  const prompt = `"${q}" için 5 Google sonucu simüle et. JSON DİZİSİ dön.`;
   try {
     const res = await runGeneralAnalysis(prompt);
     return parseJsonSafe(res);
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 };
 
 export const generateUnifiedWebSummary = async (query, results) => {
@@ -273,7 +229,5 @@ export const generateUnifiedWebSummary = async (query, results) => {
   try {
     const res = await runGeneralAnalysis(prompt);
     return parseJsonSafe(res);
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };

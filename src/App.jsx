@@ -54,7 +54,7 @@ const App = () => {
   const [assistantRef, setAssistantRef] = useState(null);
   const [assistantType, setAssistantType] = useState('Basın Bülteni');
   const [chatMessages, setChatMessages] = useState([
-    { role: 'ai', text: `Merhaba! Ben **Musa AI**, Saadet Partisi'nin kurumsal yapay zeka asistanıyım.\n\nHaber analizi, içerik üretimi veya siyasi değerlendirme için bana yazabilirsiniz. Sol ve orta panelden "Asistana Gönder" butonuyla haber veya günleri doğrudan referans olarak ekleyebilirsiniz.` }
+    { role: 'ai', text: `Merhaba! Ben **Milli AI**, Saadet Partisi'nin kurumsal yapay zeka asistanıyım.\n\nHaber analizi, içerik üretimi veya siyasi değerlendirme için bana yazabilirsiniz. Sol ve orta panelden "Asistana Gönder" butonuyla haber veya günleri doğrudan referans olarak ekleyebilirsiniz.` }
   ]);
   const [userInput, setUserInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -343,7 +343,7 @@ const App = () => {
                     <h4 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{unifiedSummary.title}</h4>
                     <p style={{ fontSize: '0.9rem', lineHeight: '1.7', whiteSpace: 'pre-wrap', marginBottom: '1.5rem', color: '#d1d1d1' }}>{unifiedSummary.summary}</p>
                     <div style={{ background: 'rgba(234, 67, 53, 0.05)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(234, 67, 53, 0.2)' }}>
-                      <span style={{ color: '#EA4335', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}><MessageSquare size={14} /> Musa AI Kurumsal Değerlendirme</span>
+                      <span style={{ color: '#EA4335', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.6rem' }}><MessageSquare size={14} /> Milli AI Kurumsal Değerlendirme</span>
                       <p style={{ fontSize: '0.85rem', lineHeight: '1.6', fontStyle: 'italic', color: '#b0b0b0' }}>{unifiedSummary.saadetSpecial}</p>
                     </div>
                   </motion.div>
@@ -407,7 +407,7 @@ const App = () => {
               <div className="panel-header">
                 <h2 className="panel-title">
                   <Bot size={18} style={{ color: 'var(--saadet-red)' }} />
-                  MUSA AI ASİSTAN
+                  MİLLİ AI ASİSTAN
                 </h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <button className="icon-btn" title="Sohbeti Temizle" onClick={() => {
@@ -479,7 +479,7 @@ const App = () => {
                 <textarea
                   ref={textareaRef}
                   className="chat-textarea"
-                  placeholder="Musa AI'ya yazın... (Enter → Gönder, Shift+Enter → Satır)"
+                  placeholder="Milli AI'ya yazın... (Enter → Gönder, Shift+Enter → Satır)"
                   rows="2"
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
@@ -529,7 +529,7 @@ const App = () => {
                 <div style={{ maxHeight: '70vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
                   <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '12px', border: '1px solid var(--panel-border)', marginBottom: '1.5rem' }}><h4 style={{ color: 'var(--saadet-red)', fontSize: '0.8rem', textTransform: 'uppercase', marginBottom: '0.75rem', fontWeight: 700 }}>Analiz Raporu</h4><p style={{ fontSize: '1rem', lineHeight: '1.7' }}>{analysisDetail.summary}</p></div>
                   <div style={{ marginBottom: '2rem' }}><h4 style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', textTransform: 'uppercase', marginBottom: '1rem' }}>Sorgulanan Göstergeler</h4><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>{analysisDetail.headlines.map((h, i) => <div key={i} style={{ display: 'flex', alignItems: 'start', gap: '0.5rem', fontSize: '0.85rem', background: 'var(--glass)', padding: '0.75rem', borderRadius: '8px' }}><ChevronRight size={14} style={{ color: 'var(--saadet-red)' }} />{h}</div>)}</div></div>
-                  <div style={{ background: 'linear-gradient(135deg, #1e1e24 0%, #121216 100%)', padding: '1.5rem', borderRadius: '16px', borderLeft: '4px solid var(--saadet-red)' }}><h4 style={{ color: 'var(--saadet-red)', fontSize: '0.9rem', fontWeight: 800, marginBottom: '0.5rem' }}>Saadet Partisi Özel Değerlendirme</h4><p style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>{analysisDetail.saadetSpecial}</p></div>
+                  <div style={{ background: 'linear-gradient(135deg, #1e1e24 0%, #121216 100%)', padding: '1.5rem', borderRadius: '16px', borderLeft: '4px solid var(--saadet-red)' }}><h4 style={{ color: 'var(--saadet-red)', fontSize: '0.9rem', fontWeight: 800, marginBottom: '0.5rem' }}>Saadet Partisi Özel Değerlendirme (Milli AI)</h4><p style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>{analysisDetail.saadetSpecial}</p></div>
                 </div>
               )}
             </motion.div>
