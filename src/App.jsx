@@ -269,7 +269,11 @@ const App = () => {
       </div>
 
       <header className="app-header">
-        <div className="brand"><div className="brand-dot"></div>Project M Live Sync Console</div>
+        <div className="brand">
+          <div className="brand-dot"></div>
+          Project M Live Sync Console
+          <span style={{ fontSize: '0.65rem', background: 'var(--saadet-red)', padding: '2px 6px', borderRadius: '4px', marginLeft: '0.75rem', fontWeight: 900, color: 'white' }}>v2.0.1 - MİLLİ AI LIVE</span>
+        </div>
         <div className="controls">
           <AnimatePresence>
             {isScanning && (
