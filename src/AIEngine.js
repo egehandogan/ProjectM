@@ -12,6 +12,14 @@ const openai = OPENAI_API_KEY ? new OpenAI({
   dangerouslyAllowBrowser: true,
 }) : null;
 
+// Modeller listesi (En yeni ve kapsayıcı olandan başlayarak)
+const GEMINI_MODELS = [
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash",
+  "gemini-pro",
+  "gemini-1.0-pro"
+];
+
 const SYSTEM_INSTRUCTION_TEXT = `
 Sen "Musa AI" adında, Saadet Partisi için özel olarak geliştirilmiş teknik bir yapay zeka asistanısın.
 
@@ -85,28 +93,42 @@ export const chatWithAssistant = async (messages, reference = null, onChunk = nu
   if (genAI) {
     try {
       const history = cleanHistoryForGemini(messages.slice(0, -1));
-      const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        systemInstruction: SYSTEM_INSTRUCTION_TEXT
-      });
+      
+      // Fallback zinciri ile mesaj gönderme
+      let lastErr = null;
+      for (const modelName of GEMINI_MODELS) {
+        try {
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: SYSTEM_INSTRUCTION_TEXT
+          });
+          const chat = model.startChat({ history });
 
-      const chat = model.startChat({ history });
-
-      if (onChunk) {
-        const stream = await chat.sendMessageStream(prompt);
-        let full = "";
-        for await (const chunk of stream.stream) {
-          const chunkText = chunk.text();
-          full += chunkText;
-          onChunk(chunkText, full);
+          if (onChunk) {
+            const stream = await chat.sendMessageStream(prompt);
+            let full = "";
+            for await (const chunk of stream.stream) {
+              const chunkText = chunk.text();
+              full += chunkText;
+              onChunk(chunkText, full);
+            }
+            return full;
+          } else {
+            const result = await chat.sendMessage(prompt);
+            return result.response.text();
+          }
+        } catch (innerErr) {
+          lastErr = innerErr;
+          if (innerErr.message?.includes("404") || innerErr.message?.includes("not found")) {
+            console.warn(`Gemini model ${modelName} bulunamadı, sonrakine geçiliyor...`);
+            continue;
+          }
+          throw innerErr; // 404 dışındaki hataları (bakiye vb.) direkt fırlat
         }
-        return full;
-      } else {
-        const result = await chat.sendMessage(prompt);
-        return result.response.text();
       }
+      throw lastErr;
     } catch (err) {
-      console.error("Gemini Error:", err);
+      console.error("Gemini Chat Error (Final):", err);
       // Fallback'e git...
     }
   }
@@ -156,16 +178,25 @@ export const chatWithAssistant = async (messages, reference = null, onChunk = nu
 const runGeneralAnalysis = async (prompt) => {
   // Gemini
   if (genAI) {
-    try {
-      const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        systemInstruction: SYSTEM_INSTRUCTION_TEXT
-      });
-      const result = await model.generateContent(prompt);
-      return result.response.text();
-    } catch (err) {
-      console.warn("Gemini General Analysis Error:", err);
+    let lastErr = null;
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: SYSTEM_INSTRUCTION_TEXT
+        });
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+      } catch (err) {
+        lastErr = err;
+        if (err.message?.includes("404") || err.message?.includes("not found")) {
+          console.warn(`Gemini Analysis model ${modelName} bulunamadı, sonrakine geçiliyor...`);
+          continue;
+        }
+        break; 
+      }
     }
+    console.warn("Gemini General Analysis fully failed, trying OpenAI...", lastErr);
   }
 
   // OpenAI
