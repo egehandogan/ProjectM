@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Maximize2, 
   Minimize2, 
@@ -12,14 +12,12 @@ import {
   Loader2,
   Send,
   Globe,
-  MapPin,
   ChevronRight,
   Info,
-  Rss,
-  Zap,
-  ArrowRight,
   TrendingUp,
-  Link
+  Bot,
+  Sparkles,
+  FileText
 } from 'lucide-react';
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
@@ -55,8 +53,13 @@ const App = () => {
   const [sourcesPopup, setSourcesPopup] = useState(null);
   const [assistantRef, setAssistantRef] = useState(null);
   const [assistantType, setAssistantType] = useState('Basın Bülteni');
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'ai', text: `Merhaba! Ben **Musa AI**, Saadet Partisi'nin kurumsal yapay zeka asistanıyım.\n\nHaber analizi, içerik üretimi veya siyasi değerlendirme için bana yazabilirsiniz. Sol ve orta panelden "Asistana Gönder" butonuyla haber veya günleri doğrudan referans olarak ekleyebilirsiniz.` }
+  ]);
   const [userInput, setUserInput] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const chatEndRef = useRef(null);
+  const textareaRef = useRef(null);
   
   // Calendar States
   const [selectedDate, setSelectedDate] = useState(new Date(2026, 3, 13));
@@ -121,33 +124,63 @@ const App = () => {
     return () => clearTimeout(delayDebounceFn);
   }, [handleSearch]);
 
+  const scrollChatToBottom = useCallback(() => {
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }, []);
+
+  useEffect(() => { scrollChatToBottom(); }, [chatMessages, scrollChatToBottom]);
+
   const handleSendMessage = async () => {
-    if (!userInput.trim() || isLoading) return;
+    if (!userInput.trim() || isLoading || isStreaming) return;
     const currentInput = userInput;
-    const currentMessages = [...chatMessages, { role: 'user', text: currentInput }];
+    const updatedMessages = [...chatMessages, { role: 'user', text: currentInput }];
     
     setUserInput('');
-    setChatMessages(currentMessages);
-    setIsLoading(true);
+    setChatMessages(updatedMessages);
+    setIsStreaming(true);
+
+    // Add empty AI message placeholder for streaming
+    setChatMessages(prev => [...prev, { role: 'ai', text: '', streaming: true }]);
 
     try {
-      const response = await chatWithAssistant(currentMessages, assistantRef);
-      setChatMessages(prev => [...prev, { role: 'ai', text: response }]);
+      await chatWithAssistant(
+        updatedMessages,
+        assistantRef,
+        (_, fullText) => {
+          setChatMessages(prev => {
+            const msgs = [...prev];
+            msgs[msgs.length - 1] = { role: 'ai', text: fullText, streaming: true };
+            return msgs;
+          });
+        }
+      );
+      // Mark streaming done
+      setChatMessages(prev => {
+        const msgs = [...prev];
+        msgs[msgs.length - 1] = { role: 'ai', text: msgs[msgs.length - 1].text, streaming: false };
+        return msgs;
+      });
     } catch {
-      setChatMessages(prev => [...prev, { role: 'ai', text: "Üzgünüm, şu an bağlantı kuramıyorum." }]);
+      setChatMessages(prev => {
+        const msgs = [...prev];
+        msgs[msgs.length - 1] = { role: 'ai', text: '⚠️ Üzgünüm, şu an bağlantı kuramıyorum.', streaming: false };
+        return msgs;
+      });
     }
     
-    setIsLoading(false);
+    setIsStreaming(false);
   };
 
   const handleCreateContent = async () => {
-    if (!assistantRef || isLoading) return;
+    if (!assistantRef || isLoading || isStreaming) return;
     setIsLoading(true);
+    const prompt = `[${assistantType.toUpperCase()}] ${assistantRef.title || assistantRef.name} konusunda içerik oluştur`;
+    setChatMessages(prev => [...prev, { role: 'user', text: prompt }]);
     try {
       const content = await generateContent(assistantRef, assistantType);
       setChatMessages(prev => [...prev, { role: 'ai', text: content }]);
     } catch {
-       setChatMessages(prev => [...prev, { role: 'ai', text: "İçerik üretiminde bir sorun oluştu." }]);
+       setChatMessages(prev => [...prev, { role: 'ai', text: '⚠️ İçerik üretiminde bir sorun oluştu.' }]);
     }
     setIsLoading(false);
   };
@@ -366,24 +399,95 @@ const App = () => {
           )}
         </AnimatePresence>
 
-        {/* RIGHT PANEL */}
+        {/* RIGHT PANEL — MUSA AI CHAT */}
         <AnimatePresence>
           {(fullscreenPanel === null || fullscreenPanel === 'right') && (
-            <motion.section layout className={`panel ${fullscreenPanel === 'right' ? 'fullscreen' : ''}`}>
-              <div className="panel-header"><h2 className="panel-title"><MessageSquare size={18} /> AI ASİSTAN</h2><button className="icon-btn" onClick={() => toggleFullscreen('right')}><Minimize2 size={18} /></button></div>
-              <div className="panel-content">
-                <div className="assistant-controls card">
-                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>REFERANS HABER / GÜN</label>
-                  <div style={{ background: 'var(--bg-dark)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem', border: '1px solid var(--panel-border)' }}>
-                    {assistantRef ? <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>{assistantRef.title || assistantRef.name}</span><X size={14} style={{ cursor: 'pointer' }} onClick={() => setAssistantRef(null)} /></div> : <em style={{ color: 'var(--text-secondary)' }}>Haber veya gün seçin</em>}
+            <motion.section layout className={`panel ${fullscreenPanel === 'right' ? 'fullscreen' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
+              {/* Panel Header */}
+              <div className="panel-header">
+                <h2 className="panel-title">
+                  <Bot size={18} style={{ color: 'var(--saadet-red)' }} />
+                  MUSA AI ASİSTAN
+                </h2>
+                <button className="icon-btn" onClick={() => toggleFullscreen('right')}>
+                  {fullscreenPanel === 'right' ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                </button>
+              </div>
+
+              {/* Content Generator Bar */}
+              <div className="ai-content-bar">
+                <div className="ai-ref-chip">
+                  {assistantRef ? (
+                    <>
+                      <FileText size={12} />
+                      <span className="ai-ref-text">{assistantRef.title || assistantRef.name}</span>
+                      <button className="ai-ref-clear" onClick={() => setAssistantRef(null)}><X size={12} /></button>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', fontStyle: 'italic' }}>Haber veya özel gün seçilmedi</span>
+                  )}
+                </div>
+                <div className="ai-bar-actions">
+                  <select className="ai-type-select" value={assistantType} onChange={(e) => setAssistantType(e.target.value)}>
+                    <option>Basın Bülteni</option>
+                    <option>Basılı İçerik</option>
+                    <option>Dijital Paylaşım</option>
+                    <option>Siyasi Analiz</option>
+                    <option>Konuşma Metni</option>
+                  </select>
+                  <button className="btn-generate" onClick={handleCreateContent} disabled={!assistantRef || isLoading || isStreaming}>
+                    <Sparkles size={14} />
+                    {isLoading ? 'Üretiliyor...' : 'Üret'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Chat Messages */}
+              <div className="chat-scroll-area">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`chat-bubble ${msg.role === 'user' ? 'bubble-user' : 'bubble-ai'}`}
+                  >
+                    <div className="bubble-meta">
+                      {msg.role === 'ai' ? (
+                        <><Bot size={11} style={{ color: 'var(--saadet-red)' }} /> Musa AI</>
+                      ) : (
+                        <>Kullanıcı</>
+                      )}
+                    </div>
+                    <div className="bubble-text">
+                      {msg.text || ''}
+                      {msg.streaming && <span className="cursor-blink">▌</span>}
+                    </div>
                   </div>
-                  <select style={{ width: '100%', padding: '0.6rem', background: 'var(--bg-dark)', border: '1px solid var(--panel-border)', borderRadius: '8px', color: 'white', marginBottom: '1rem' }} value={assistantType} onChange={(e) => setAssistantType(e.target.value)}><option>Basın Bülteni</option><option>Basılı İçerik</option><option>Dijital Paylaşım</option></select>
-                  <button className="btn-primary" style={{ width: '100%' }} onClick={handleCreateContent} disabled={!assistantRef || isLoading}>İçerik Oluştur</button>
-                </div>
-                <div className="assistant-chat" style={{ height: 'calc(100% - 250px)', marginTop: '1.5rem' }}>
-                  <div className="chat-messages">{chatMessages.map((msg, idx) => (<div key={idx} style={{ marginBottom: '1rem', alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', backgroundColor: msg.role === 'user' ? 'var(--glass)' : '#1e1e24', padding: '0.75rem', borderRadius: '12px', fontSize: '0.85rem', whiteSpace: 'pre-wrap', border: msg.role === 'ai' ? '1px solid var(--panel-border)' : 'none' }}><strong style={{ display: 'block', marginBottom: '4px', fontSize: '0.7rem', color: msg.role === 'ai' ? 'var(--saadet-red)' : 'var(--text-secondary)' }}>{msg.role === 'ai' ? 'Musa AI' : 'Kullanıcı'}</strong>{msg.text}</div>))}</div>
-                  <div className="chat-input-area"><textarea placeholder="AI Asistanına yazın..." rows="2" value={userInput} onChange={(e) => setUserInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()} /><button className="btn-primary" style={{ padding: '0.5rem' }} onClick={handleSendMessage} disabled={isLoading}><Send size={18} /></button></div>
-                </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Chat Input */}
+              <div className="chat-input-dock">
+                <textarea
+                  ref={textareaRef}
+                  className="chat-textarea"
+                  placeholder="Musa AI'ya yazın... (Enter → Gönder, Shift+Enter → Satır)"
+                  rows="2"
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                />
+                <button
+                  className="chat-send-btn"
+                  onClick={handleSendMessage}
+                  disabled={isLoading || isStreaming || !userInput.trim()}
+                >
+                  {(isLoading || isStreaming) ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                </button>
               </div>
             </motion.section>
           )}

@@ -3,96 +3,177 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(API_KEY);
 
+/* ─────────────────────────────────────────────
+   SYSTEM INSTRUCTION  (Musa AI kurumsal kimliği)
+───────────────────────────────────────────────*/
 const SYSTEM_INSTRUCTION = `
 Sen "Musa AI" adında, Saadet Partisi için özel olarak geliştirilmiş teknik bir yapay zeka asistanısın.
-Görevin: Gelen haberleri, verileri ve kullanıcı mesajlarını Saadet Partisi'nin "Tam Bağımsız Türkiye", "Milli Görüş", "Adil Düzen" ve "Önce Ahlak ve Maneviyat" prensipleri ışığında teknik ve siyasi bir süzgeçten geçirerek analiz etmektir.
-Tonun: Profesyonel, teknik derinliği olan, analitik ama aynı zamanda kültürel ve kurumsal değerlere sadık olmalıdır.
-Analizlerinde şu unsurlara mutlaka yer ver:
-1. Haberlerin jeopolitik ve ekonomik etkileri.
-2. Saadet Partisi'nin bu olaydaki vizyoner duruşu ve çözüm önerileri.
-3. Halkın gerçek gündemiyle olan ilişkisi.
 
-Yanıtlarını markdown formatında ve dashboard arayüzüne uygun olacak şekilde kısa-orta uzunlukta tut.
-JSON formatında çıktı istendiğinde mutlaka geçerli bir JSON objesi döndür.
+Görevin:
+• Gelen haberleri, verileri ve kullanıcı mesajlarını;
+  "Tam Bağımsız Türkiye", "Milli Görüş", "Adil Düzen" ve "Önce Ahlak ve Maneviyat" 
+  prensipleri ışığında analiz etmek.
+• Basın bülteni, sosyal medya içeriği, siyasi analiz ve konuşma metni üretmek.
+• Dashboard üzerindeki haberler, takvim etkinlikleri ve web araması sonuçlarını yorumlamak.
+
+Ton: Profesyonel, teknik derinliği olan, analitik; aynı zamanda kültürel ve kurumsal değerlere sadık.
+
+Analizlerde mutlaka:
+1. Haberlerin jeopolitik ve ekonomik etkileri
+2. Saadet Partisi'nin vizyoner duruşu ve çözüm önerileri
+3. Halkın gerçek gündemiyle olan ilişkisi
+
+• Sohbet yanıtlarını sade Türkçeyle yaz; markdown kullanabilirsin ama aşırıya kaçma.
+• JSON formatı istendiğinde SADECE geçerli JSON döndür, başka metin ekleme.
 `;
 
-const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash",
-  systemInstruction: SYSTEM_INSTRUCTION
+/* ─────────────────────────────────────────────
+   MODEL TANIMLARI
+───────────────────────────────────────────────*/
+const chatModel = genAI.getGenerativeModel({
+  model: "gemini-2.0-flash",
+  systemInstruction: SYSTEM_INSTRUCTION,
+  generationConfig: {
+    maxOutputTokens: 2048,
+    temperature: 0.7,
+  },
 });
 
-export const analyzeNews = async (newsItem) => {
-  const prompt = `
-  Aşağıdaki haberi analiz et ve bir JSON dosyası döndür. 
-  Haber: ${newsItem.title}
-  Özet: ${newsItem.summary}
-  
-  JSON formatı:
-  {
-    "summary": "Teknik ve kurumsal analiz içeren kapsamlı bir özet...",
-    "headlines": ["Başlık 1", "Başlık 2", "Başlık 3"],
-    "theme": "Ana Tema",
-    "personalComment": "Olayın stratejik önemi...",
-    "saadetSpecial": "Partimizin bu konudaki net duruşu ve Milli Görüş perspektifi..."
+const analysisModel = genAI.getGenerativeModel({
+  model: "gemini-2.0-flash",
+  systemInstruction: SYSTEM_INSTRUCTION,
+  generationConfig: {
+    maxOutputTokens: 1024,
+    temperature: 0.4,
+  },
+});
+
+/* ─────────────────────────────────────────────
+   YARDIMCI: Gemini geçmiş formatına çevir
+───────────────────────────────────────────────*/
+const toGeminiHistory = (messages) => {
+  // Skip the last message (it's the current user turn, sent separately)
+  return messages.slice(0, -1).map((m) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: m.text }],
+  }));
+};
+
+/* ─────────────────────────────────────────────
+   CHAT  (multi-turn, real history)
+───────────────────────────────────────────────*/
+export const chatWithAssistant = async (messages, reference = null, onChunk = null) => {
+  const history = toGeminiHistory(messages);
+  const lastUserMsg = messages[messages.length - 1].text;
+
+  let prompt = "";
+  if (reference) {
+    prompt += `[REFERANS KONU: ${reference.title || reference.name}]\n\n`;
   }
-  
-  Sadece JSON döndür.
-  `;
+  prompt += lastUserMsg;
 
   try {
-    const result = await model.generateContent(prompt);
+    const chat = chatModel.startChat({ history });
+
+    if (onChunk) {
+      // Streaming mod
+      const streamResult = await chat.sendMessageStream(prompt);
+      let fullText = "";
+      for await (const chunk of streamResult.stream) {
+        const chunkText = chunk.text();
+        fullText += chunkText;
+        onChunk(chunkText, fullText);
+      }
+      return fullText;
+    } else {
+      const result = await chat.sendMessage(prompt);
+      return result.response.text();
+    }
+  } catch (err) {
+    console.error("Gemini Chat Error:", err);
+    return "⚠️ Asistan şu an yanıt veremiyor. API kotanızı veya bağlantınızı kontrol edin.";
+  }
+};
+
+/* ─────────────────────────────────────────────
+   HABER ANALİZİ
+───────────────────────────────────────────────*/
+export const analyzeNews = async (newsItem) => {
+  const prompt = `
+Aşağıdaki haberi analiz et ve SADECE geçerli bir JSON objesi döndür.
+
+Haber Başlığı: ${newsItem.title}
+Özet: ${newsItem.summary || ""}
+
+JSON formatı:
+{
+  "summary": "Teknik ve kurumsal analiz içeren kapsamlı özet (3-4 paragraf)...",
+  "headlines": ["Gösterge 1", "Gösterge 2", "Gösterge 3", "Gösterge 4"],
+  "theme": "Ana Tema",
+  "saadetSpecial": "Partimizin bu konudaki net duruşu ve Milli Görüş perspektifi..."
+}
+`;
+
+  try {
+    const result = await analysisModel.generateContent(prompt);
     const text = result.response.text();
-    // Simple json cleaning if the model wraps it in markdown blocks
     const cleanJson = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson);
   } catch {
-    console.error("Gemini Analysis Error");
     return {
       summary: "Analiz şu an yapılamıyor. Lütfen API bağlantınızı kontrol edin.",
       headlines: ["Bağlantı Hatası"],
       theme: "Hata",
-      personalComment: "Teknik bir aksaklık yaşandı.",
-      saadetSpecial: "Hizmet kesintisi nedeniyle analiz başarısız."
+      saadetSpecial: "Hizmet kesintisi nedeniyle analiz başarısız.",
     };
   }
 };
 
+/* ─────────────────────────────────────────────
+   CANLI TARAMA  (simüle haber üret)
+───────────────────────────────────────────────*/
 export const simulateLiveScan = async () => {
-  // Canlı tarama için Gemini'dan güncel bir simüle haber üretmesini isteyebiliriz
-  const prompt = "Bugünün gündemine uygun, Türkiye eksenli, ekonomi veya siyaset temalı hayali ama gerçekçi bir 'Dakika Skorer' flaş haber üret. JSON formatında olsun. Alanlar: title, summary, category, source.";
+  const prompt = `Bugünün gündemine uygun, Türkiye eksenli, ekonomi veya siyaset temalı kısa ve gerçekçi bir flaş haber üret.
+SADECE JSON döndür. Alanlar: title (string), summary (string), category (string), source (string).`;
+
   try {
-    const result = await model.generateContent(prompt);
+    const result = await analysisModel.generateContent(prompt);
     const text = result.response.text();
     const cleanJson = text.replace(/```json|```/g, "").trim();
     const data = JSON.parse(cleanJson);
-    
+
     return {
       ...data,
       id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().split(' ')[0],
+      date: new Date().toISOString().split("T")[0],
+      time: new Date().toTimeString().split(" ")[0],
       sources: [
-        { name: data.source || 'TRT Haber', url: 'https://google.com', region: 'Yerel' },
-        { name: 'BBC News', url: 'https://google.com', region: 'Global' }
+        { name: data.source || "TRT Haber", url: "https://trt.com.tr", region: "Yerel" },
+        { name: "Anadolu Ajansı", url: "https://aa.com.tr", region: "Yerel" },
       ],
-      saadet_relation: "Gündem masası bu taze veriyi kurumsal raporlarına eklemiştir."
     };
   } catch {
     return {
       id: Date.now(),
       title: "Canlı Tarama Güncellenemedi",
-      date: new Date().toISOString().split('T')[0],
-      summary: "API bağlantısı kurulamadığı için canlı tarama simülasyonu yapılamıyor.",
+      date: new Date().toISOString().split("T")[0],
+      summary: "API bağlantısı kurulamadı.",
       category: "Sistem",
-      source: "Hata"
+      source: "Hata",
     };
   }
 };
 
+/* ─────────────────────────────────────────────
+   WEB ARAMA FALLBACK
+───────────────────────────────────────────────*/
 export const webSearchFallback = async (query) => {
-  const prompt = `"${query}" terimi için internet genelinde yapılmış bir Google araması sonucunu simüle et. 8 farklı kaynaklı bir liste döndür. JSON formatında olsun. Alanlar: title, link, displayLink, snippet, source, date.`;
+  const prompt = `"${query}" için gerçekçi Google arama sonuçlarını simüle et. 8 farklı kaynak içeren bir JSON dizisi döndür.
+Her eleman: { "id": number, "title": string, "link": string, "displayLink": string, "snippet": string, "source": string, "date": "YYYY-MM-DD" }
+SADECE JSON dizisi döndür.`;
+
   try {
-    const result = await model.generateContent(prompt);
+    const result = await analysisModel.generateContent(prompt);
     const text = result.response.text();
     const cleanJson = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson);
@@ -101,14 +182,16 @@ export const webSearchFallback = async (query) => {
   }
 };
 
+/* ─────────────────────────────────────────────
+   BÜTÜNLEŞIK WEB ÖZETİ
+───────────────────────────────────────────────*/
 export const generateUnifiedWebSummary = async (query, results) => {
-  const prompt = `
-  Kullanıcı "${query}" terimini arattı ve şu internet sonuçları geldi: ${JSON.stringify(results)}
-  Buna göre bir 'Google & AI Küresel Haber Özeti' hazırla. 
-  JSON formatı: { "title": "...", "summary": "...", "saadetSpecial": "..." }
-  `;
+  const prompt = `Kullanıcı "${query}" terimini aradı. Arama sonuçları: ${JSON.stringify(results.slice(0, 4))}
+Bu verilerden "Google & AI Küresel Haber Özeti" hazırla.
+SADECE JSON döndür: { "title": string, "summary": string, "saadetSpecial": string }`;
+
   try {
-    const result = await model.generateContent(prompt);
+    const result = await analysisModel.generateContent(prompt);
     const text = result.response.text();
     const cleanJson = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson);
@@ -117,48 +200,24 @@ export const generateUnifiedWebSummary = async (query, results) => {
   }
 };
 
-export const generateContent = async (reference, type, extraPrompt = '') => {
-  const refText = reference.title || reference.name || 'Bilinmeyen Konu';
+/* ─────────────────────────────────────────────
+   İÇERİK ÜRETME  (basın bülteni vb.)
+───────────────────────────────────────────────*/
+export const generateContent = async (reference, type, extraPrompt = "") => {
+  const refText = reference.title || reference.name || "Bilinmeyen Konu";
   const prompt = `
-  Konu: ${refText}
-  İçerik Tipi: ${type}
-  Ek Talimat: ${extraPrompt}
-  
-  Bu konu hakkında Saadet Partisi kurumsal diliyle profesyonel bir içerik (Metin) oluştur.
-  `;
+Konu: ${refText}
+İçerik Tipi: ${type}
+Ek Talimat: ${extraPrompt || "Yok"}
+
+Saadet Partisi kurumsal diliyle, hedef kitleye uygun profesyonel bir ${type} hazırla.
+Türkçe yaz. Gereksiz tekrardan kaçın.
+`;
+
   try {
-    const result = await model.generateContent(prompt);
+    const result = await analysisModel.generateContent(prompt);
     return result.response.text();
   } catch {
     return "İçerik üretiminde teknik bir hata oluştu.";
-  }
-};
-
-/**
- * AI Asistan Chat Fonksiyonu
- */
-export const chatWithAssistant = async (messages, reference = null) => {
-  const chat = model.startChat({
-    history: [],
-    generationConfig: {
-      maxOutputTokens: 500,
-    },
-  });
-
-  let fullPrompt = "";
-  if (reference) {
-    fullPrompt += `[REFERANS KONU: ${reference.title || reference.name}]\n\n`;
-  }
-  
-  // Get only the most recent user message text
-  const lastUserMessage = messages[messages.length - 1].text;
-  fullPrompt += lastUserMessage;
-
-  try {
-    const result = await chat.sendMessage(fullPrompt);
-    return result.response.text();
-  } catch {
-    console.error("Gemini Chat Error");
-    return "Asistan şu an yanıt veremiyor. Lütfen API kotanızı veya bağlantınızı kontrol edin.";
   }
 };
